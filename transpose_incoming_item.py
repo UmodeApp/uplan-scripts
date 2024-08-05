@@ -3,8 +3,8 @@ from dotenv import load_dotenv
 import pandas as pd
 from datetime import datetime
 from src.mongo_integration import mongo_connection
-from src.controllers.raw_items_to_icoming_items import RefreshIncomingItems
-from src.controllers.incoming_to_live_items import copyDocumentsToNewCollection
+from controllers.create_incoming_item import RefreshIncomingItems
+from controllers.create_live_items import copyDocumentsToNewCollection
 from src.controllers import update_sku
 from src.log_manager import LogManager
 

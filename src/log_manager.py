@@ -13,6 +13,7 @@ class LogManager:
         "IncomingItems": "IncomingRawOrderLogs",
         "PipelineItems": "PipelineItems",
         "PipelineOrders": "PipelineOrders",
+        "create_incoming_raw_items": "create_incoming_raw_items",
     }
 
     def __init__(self, stage) -> None:

@@ -50,7 +50,7 @@ class LoadCSVtoRawOrders:
         if formatted_orders:
             self.collection_incoming_raw_items.insert_many(formatted_orders)
 
-        print(f"Inserted {count} orders successfully.")
+        return count
 
     def run(self, start_chunk=0):
         count_chunk = 0
@@ -59,7 +59,9 @@ class LoadCSVtoRawOrders:
             if count_chunk <= start_chunk:
                 continue
             try:
-                self.add_orders(data_chunk)
+                count = self.add_orders(data_chunk)
+                print(
+                    f"Chunk {count_chunk} - Inserted {count} orders successfully.")
             except Exception as e:
                 self.logs_data["tracer"].append(
                     f"Erro in count_chunk {count_chunk}: {e}")

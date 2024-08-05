@@ -1,11 +1,9 @@
 import os
 from dotenv import load_dotenv
-import pandas as pd
-from datetime import datetime
 from src.mongo_integration import mongo_connection
-from src.controllers.csv_orders_to_raw_orders import LoadCSVtoRawOrders
-from src.controllers.incoming_to_live_items import copyDocumentsToNewCollection
-from src.controllers.raw_orders_to_incoming_orders import refresh_incoming_orders
+from src.controllers.create_incoming_raw_orders import LoadCSVtoRawOrders
+from src.controllers.create_live_items import copyDocumentsToNewCollection
+from src.controllers.create_incoming_orders import refresh_incoming_orders
 from src.log_manager import LogManager
 
 
@@ -56,8 +54,6 @@ class PipelineDadaOrders:
     def run(self):
         try:
             self.step1()
-            self.step2()
-            self.step3()
         except Exception as e:
             self.logs_data["tracer"][
                 "error"] = f"Pipeline execution failed with error: {str(e)}"
@@ -67,7 +63,7 @@ class PipelineDadaOrders:
 
 integration_id = "666788e0eb8f5b0ac6f826cc"
 path_orders_to_item_slim = 'files/[uPlan][Lojas Colmeia] Itens Vendidos.csv'
-pipe = PipelineDadaOrders(integration_id, path_orders_to_item_slim)
 chunk_size = 5000
 start_chunk = 0
-pipe.step1()
+pipe = PipelineDadaOrders(integration_id, path_orders_to_item_slim, chunk_size, start_chunk)
+pipe.run()
