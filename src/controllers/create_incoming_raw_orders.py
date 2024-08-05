@@ -19,13 +19,14 @@ class LoadCSVtoRawOrders:
             "tracer": []
         }
 
-    def finish_logs(self):
-        if len(self.logs_data["tracer"]) == 0:
-            self.logs_data["tracer"].append("Data 100% loaded without erros!")
-        else:
-            self.logs_data["tracer"].append(
-                f"Data loaded without {len(self.logs_data['tracer'])} erros!")
+    def count_rows_in_chunks(self):
+        row_count = 0
+        for chunk in pd.read_csv(self.csv_file, sep=",", chunksize=self.chunk_size):
+            row_count += len(chunk)
+        return row_count
 
+    def finish_logs(self):
+        self.logs_data["tracer"].append("Finished execution!")
         self.logs.save_log(self.logs_data)
 
     def get_order_id_by_brand(self, data):
@@ -53,18 +54,26 @@ class LoadCSVtoRawOrders:
         return count
 
     def run(self, start_chunk=0):
-        count_chunk = 0
+        count_chunk, logs_chunck = 0, 0
         for data_chunk in pd.read_csv(self.csv_file, sep=",", chunksize=self.chunk_size):
             count_chunk += 1
             if count_chunk <= start_chunk:
                 continue
+
             try:
                 count = self.add_orders(data_chunk)
                 print(
                     f"Chunk {count_chunk} - Inserted {count} orders successfully.")
             except Exception as e:
                 self.logs_data["tracer"].append(
-                    f"Erro in count_chunk {count_chunk}: {e}")
+                    f"Error in chunk {count_chunk}: {e}")
+
+            if count_chunk % 20 == 0:
+                self.logs_data["tracer"].append(
+                    f"Executions count_chunk {logs_chunck} - {count_chunk}")
+                self.logs.save_log(self.logs_data)
+                self.logs_data["tracer"] = []
+                logs_chunck = count_chunk + 1
 
         print("All data has been processed and inserted.")
         self.finish_logs()
@@ -81,5 +90,11 @@ if __name__ == "__main__":
     csv_file = 'files/[uPlan][Lojas Colmeia] Itens Vendidos.csv'
     chunk_size = 5000
 
-    load = LoadCSVtoRawOrders(integration_id, csv_file, chunk_size)
+    # Supondo que `mongo_connection` retorna a conexão MongoDB e a coleção apropriada
+    client = mongo_connection()
+    db = client['your_database_name']
+    collection_incoming_raw_items = db['your_collection_name']
+
+    load = LoadCSVtoRawOrders(
+        integration_id, collection_incoming_raw_items, csv_file, chunk_size)
     load.run()

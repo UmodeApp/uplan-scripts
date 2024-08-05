@@ -3,12 +3,13 @@ from pymongo.collection import Collection
 from typing import Any, Dict
 from datetime import datetime
 import os
+import time
 
 
 class LogManager:
     DB_NAME = "Logs"
     COLLECTIONS_NAME = {
-        "RawOrder": "CsvRawOrderLogs",
+        "RawOrder": "CsvToRawOrder",
         "IncomingOrder": "IncomingRawOrderLogs",
         "IncomingItems": "IncomingRawOrderLogs",
         "PipelineItems": "PipelineItems",
@@ -22,6 +23,7 @@ class LogManager:
             os.getenv("UPLAN_URI_MONGO"), self.DB_NAME)
         self.collection_name = self.COLLECTIONS_NAME[stage]
         self.collection: Collection = self.db_logs[self.collection_name]
+        self.id_execution = str(time.time()).replace(".", "")
 
     def _connect_to_mongodb(self, uri: str, db_name: str):
         """Establish a connection to the MongoDB database."""
@@ -36,6 +38,7 @@ class LogManager:
     def _format_log_entry(self, log_data: Dict[str, Any]) -> Dict[str, Any]:
         """Format the log entry to match the desired schema."""
         return {
+            "id_execution": self.id_execution,
             "timestamp": datetime.utcnow(),
             "stage": self.stage,
             "context": log_data,

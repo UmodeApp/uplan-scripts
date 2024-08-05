@@ -65,5 +65,6 @@ integration_id = "666788e0eb8f5b0ac6f826cc"
 path_orders_to_item_slim = 'files/[uPlan][Lojas Colmeia] Itens Vendidos.csv'
 chunk_size = 5000
 start_chunk = 0
-pipe = PipelineDadaOrders(integration_id, path_orders_to_item_slim, chunk_size, start_chunk)
+pipe = PipelineDadaOrders(
+    integration_id, path_orders_to_item_slim, chunk_size, start_chunk)
 pipe.run()
