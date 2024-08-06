@@ -1,7 +1,7 @@
-from src.mongo_integration import mongo_connection
-from typing import Callable
 from datetime import datetime
+from src.mongo_integration import mongo_connection
 from src.mongo_integration.mongo_connection import remove_none_keys
+import math
 
 
 class FormatOrdersColmeia:
@@ -14,11 +14,14 @@ class FormatOrdersColmeia:
         return 1 if loja_id == self.ID_ECOMERCE else 2
 
     def format_price(self, price):
-        if not price:
-            return 0
-        price = price.replace(",", ".")
-        price = float(price)
-        return price
+        try:
+            if not price:
+                return 0
+            price = price.replace(",", ".")
+            price = float(price)
+            return price
+        except:
+            return None
 
     def select_order_status(self):
         # Missing undertanding
@@ -33,13 +36,25 @@ class FormatOrdersColmeia:
             return None
 
     def format_money(self, value) -> int:
-        if not value:
-            return 0
+        if value is None or (isinstance(value, float) and math.isnan(value)):
+            return None
         value = self.format_price(value)
         value = value * 100
         return int(value)
 
-    def run(self, order_group):
+    def format_number_or_none(self, value):
+        try:
+            return int(value)
+        except:
+            return None
+
+    def format_number(self, value):
+        try:
+            return int(value)
+        except:
+            return 0
+
+    def format(self, order_group, process_id):
         order_items = []
 
         for document in order_group["documents"]:
@@ -51,33 +66,34 @@ class FormatOrdersColmeia:
                 "orderPartnerData", {}).get("PR_DESCONTO"))
             item = {
                 "ean": document.get("orderPartnerData", {}).get("CD_PRODUTO", ""),
-                "quantity": int(document.get("orderPartnerData", {}).get("QT_VENDIDA", 1)),
+                "quantity": self.format_number_or_none(document.get("orderPartnerData", {}).get("QT_VENDIDA", 1)),
                 "refId": document.get("orderPartnerData", {}).get("DS_GRUPO").replace('"', ''),
-                "itemListPrice": int(itemListPrice),
-                "itemSalePrice": int(itemSalePrice),
-                "itemDiscount": int(itemDiscount),
+                "itemListPrice": self.format_number_or_none(itemListPrice),
+                "itemSalePrice": self.format_number_or_none(itemSalePrice),
+                "itemDiscount": self.format_number_or_none(itemDiscount),
                 "itemPartnerInstoreSKU": document.get("orderPartnerData", {}).get("CD_PRODUTO", ""),
                 "color":  document.get("orderPartnerData", {}).get("DS_COR").replace('"', ''),
             }
             order_items.append(item)
 
-        orderTotalListValue = sum(item["itemListPrice"] * item["quantity"]
+        orderTotalListValue = sum(self.format_number(item["itemListPrice"]) * item["quantity"]
                                   for item in order_items)
         orderTotalDiscount = sum(
-            item["itemDiscount"] * item["quantity"] for item in order_items)
+            self.format_number(item["itemDiscount"]) * item["quantity"] for item in order_items)
         orderTotalNetValue = sum(
-            item["itemSalePrice"] * item["quantity"] for item in order_items)
+            self.format_number(item["itemSalePrice"]) * item["quantity"] for item in order_items)
 
         order = {
             "partnerId": order_group["partnerId"],
+            "processId": process_id,
             "orderId": order_group["orderId"],
             "orderStatus": self.select_order_status(),
             "orderCreationDate": self.parse_date(order_group["documents"][0].get("orderPartnerData", {}).get("DT_TRANSF")),
             "orderInvoiceDate": self.parse_date(order_group["documents"][0].get("orderPartnerData", {}).get("DT_TRANSACAO")),
             "orderTotals": {
-                "orderTotalListValue": int(orderTotalListValue),
-                "orderTotalDiscount": int(orderTotalDiscount),
-                "orderTotalNetValue": int(orderTotalNetValue),
+                "orderTotalListValue": self.format_number(orderTotalListValue),
+                "orderTotalDiscount": self.format_number(orderTotalDiscount),
+                "orderTotalNetValue": self.format_number(orderTotalNetValue),
                 "orderTotalShippingValue": 0
             },
             "orderItems": order_items,
@@ -86,43 +102,63 @@ class FormatOrdersColmeia:
         return remove_none_keys(order)
 
 
-def selecionar_class_brand(integration_id) -> Callable[[list], dict]:
-    return FormatOrdersColmeia
+class CreateIncomingOrders:
+    INTEGRATIONS = {
+        "colmeia": FormatOrdersColmeia
+    }
 
+    def __init__(self, integration_id, process_id, collection_incoming_raw_items, collection_incoming_orders):
+        self.integration_id = integration_id
+        self.process_id = process_id
+        self.collection_incoming_raw_items = collection_incoming_raw_items
+        self.collection_incoming_orders = collection_incoming_orders
+        self.handler_process_brand = self.get_process_brand()
 
-def refresh_incoming_orders(query, integration_id,):
-    count = 0
+    def get_process_brand(self):
+        """ 
+            This function must search on database for integration_id brand
+        and return the correct format class to the brand.
+        """
+        return self.INTEGRATIONS["colmeia"]()
 
-    pipeline = [
-        {"$match": query},
-        {"$sort": {"createdAt": 1}},
-        {"$group": {
-            "_id": "$orderId",
-            "orderId": {"$first": "$orderId"},
-            "partnerId": {"$first": "$partnerId"},
-            "documents": {"$push": "$$ROOT"}
-        }}
-    ]
+    def run(self):
+        query = {"partnerId": self.integration_id,
+                 "processId": self.process_id}
 
-    order_groups = list(collection_incoming_raw_items.aggregate(pipeline))
+        pipeline = [
+            {"$match": query},
+            {"$sort": {"createdAt": 1}},
+            {"$limit": 1000},
+            {"$group": {
+                "_id": "$orderId",
+                "orderId": {"$first": "$orderId"},
+                "partnerId": {"$first": "$partnerId"},
+                "documents": {"$push": "$$ROOT"}
+            }}
+        ]
 
-    for order_group in order_groups:
-        new_format = selecionar_class_brand(integration_id)(order_group)
-        existing_document = collection_incoming_items.find_one(
-            {"orderId": order_group["orderId"]})
+        order_groups = list(self.collection_incoming_raw_items.aggregate(
+            pipeline, allowDiskUse=True))
 
-        if existing_document:
-            count += 1
-            collection_incoming_items.update_one(
-                {"_id": existing_document["_id"]},
-                {"$set": new_format},
-                upsert=True
-            )
-        else:
-            count += 1
-            collection_incoming_items.insert_one(new_format)
+        count = 0
+        for order_group in order_groups:
+            new_format = self.handler_process_brand.format(
+                order_group, self.process_id)
+            existing_document = self.collection_incoming_orders.find_one(
+                {"orderId": order_group["orderId"]})
 
-    print("Transformation completed successfully.")
+            if existing_document:
+                count += 1
+                self.collection_incoming_orders.update_one(
+                    {"_id": existing_document["_id"]},
+                    {"$set": new_format},
+                    upsert=True
+                )
+            else:
+                count += 1
+                self.collection_incoming_orders.insert_one(new_format)
+
+        print("Transformation completed successfully.")
 
 
 if __name__ == "__main__":
@@ -142,7 +178,6 @@ if __name__ == "__main__":
 
     # Query to filter items
     integration_id = "666788e0eb8f5b0ac6f826cc"
-    query = {"partnerId": integration_id}
 
     parserColmeia = FormatOrdersColmeia()
     refresh_incoming_orders(query, parserColmeia.run)

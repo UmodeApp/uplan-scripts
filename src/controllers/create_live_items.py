@@ -2,7 +2,10 @@
 from pymongo import InsertOne
 
 
-def copyDocumentsToNewCollection(query, collection_origin, collection_destiny):
+def copyDocumentsToNewCollection(integration_id, process_id, collection_origin, collection_destiny):
+    query = {"partnerId": integration_id,
+             "processId": process_id}
+
     count = 0
     bulk_operations = []
     for document in collection_origin.find(query):
@@ -13,7 +16,7 @@ def copyDocumentsToNewCollection(query, collection_origin, collection_destiny):
             )
             count += 1
 
-            if len(bulk_operations) >= 1000:
+            if len(bulk_operations) >= 5000:
                 collection_destiny.bulk_write(bulk_operations)
                 bulk_operations = []
 
@@ -30,7 +33,7 @@ if __name__ == "__main__":
     import os
     from src.mongo_integration import mongo_connection
     from dotenv import load_dotenv
-    
+
     load_dotenv()
 
     # Database connection THemis

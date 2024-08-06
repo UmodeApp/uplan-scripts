@@ -3,7 +3,6 @@ from pymongo.collection import Collection
 from typing import Any, Dict
 from datetime import datetime
 import os
-import time
 
 
 class LogManager:
@@ -17,13 +16,13 @@ class LogManager:
         "create_incoming_raw_items": "create_incoming_raw_items",
     }
 
-    def __init__(self, stage) -> None:
+    def __init__(self, stage, id_execution) -> None:
         self.stage = stage
         self.db_logs = self._connect_to_mongodb(
             os.getenv("UPLAN_URI_MONGO"), self.DB_NAME)
         self.collection_name = self.COLLECTIONS_NAME[stage]
         self.collection: Collection = self.db_logs[self.collection_name]
-        self.id_execution = str(time.time()).replace(".", "")
+        self.id_execution = id_execution
 
     def _connect_to_mongodb(self, uri: str, db_name: str):
         """Establish a connection to the MongoDB database."""
