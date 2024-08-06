@@ -1,7 +1,7 @@
-from datetime import datetime
-from src.mongo_integration import mongo_connection
-from src.mongo_integration.mongo_connection import remove_none_keys
 import math
+from datetime import datetime
+from pymongo import InsertOne, UpdateOne
+from src.mongo_integration.mongo_connection import remove_none_keys
 
 
 class FormatOrdersColmeia:
@@ -121,14 +121,23 @@ class CreateIncomingOrders:
         """
         return self.INTEGRATIONS["colmeia"]()
 
-    def run(self):
+    def get_order_ids(self, skip=0, limit=12000):
         query = {"partnerId": self.integration_id,
                  "processId": self.process_id}
 
+        cursor = self.collection_incoming_raw_items.find(query).skip(
+            skip).sort("_id", 1).limit(limit).allow_disk_use(True)
+        return list(set([order["orderId"] for order in cursor]))
+
+    def process_order_ids(self, order_ids):
+        query = {
+            "partnerId": self.integration_id,
+            "processId": self.process_id,
+            "orderId": {"$in": order_ids}
+        }
         pipeline = [
             {"$match": query},
             {"$sort": {"createdAt": 1}},
-            {"$limit": 1000},
             {"$group": {
                 "_id": "$orderId",
                 "orderId": {"$first": "$orderId"},
@@ -136,11 +145,11 @@ class CreateIncomingOrders:
                 "documents": {"$push": "$$ROOT"}
             }}
         ]
-
         order_groups = list(self.collection_incoming_raw_items.aggregate(
             pipeline, allowDiskUse=True))
 
-        count = 0
+        bulk_operations = []
+
         for order_group in order_groups:
             new_format = self.handler_process_brand.format(
                 order_group, self.process_id)
@@ -148,36 +157,54 @@ class CreateIncomingOrders:
                 {"orderId": order_group["orderId"]})
 
             if existing_document:
-                count += 1
-                self.collection_incoming_orders.update_one(
-                    {"_id": existing_document["_id"]},
-                    {"$set": new_format},
-                    upsert=True
+                bulk_operations.append(
+                    UpdateOne(
+                        {"_id": existing_document["_id"]},
+                        {"$set": new_format},
+                        upsert=True
+                    )
                 )
             else:
-                count += 1
-                self.collection_incoming_orders.insert_one(new_format)
+                bulk_operations.append(InsertOne(new_format))
+
+        return bulk_operations
+
+    def bulk_write_operations(self, bulk_operations):
+        if bulk_operations:
+            self.collection_incoming_orders.bulk_write(bulk_operations)
+            current_time = datetime.now().strftime("%H:%M:%S")
+            print(
+                f"{current_time} - Executed bulk write for {len(bulk_operations)} operations")
+
+    def run(self, batch_size=1000, limit=1000):
+        list_orders_id = []
+        skip = 0
+        while True:
+            order_ids = self.get_order_ids(skip=skip, limit=limit)
+            if not order_ids:
+                break
+
+            current_order_ids = []
+            bulk_operations = []
+
+            for order_id in order_ids:
+                if order_id not in list_orders_id:
+                    current_order_ids.append(order_id)
+
+            list_orders_id += current_order_ids
+            bulk_operation = self.process_order_ids(current_order_ids)
+            bulk_operations += bulk_operation
+
+            current_time = datetime.now().strftime("%H:%M:%S")
+            print(
+                f"{current_time} - Executed item {len(list_orders_id)} operations")
+
+            if len(bulk_operations) >= batch_size:
+                self.bulk_write_operations(bulk_operations)
+                bulk_operations = []
+
+            self.bulk_write_operations(bulk_operations)
+            skip += limit
 
         print("Transformation completed successfully.")
-
-
-if __name__ == "__main__":
-    from src.mongo_integration import mongo_connection
-    from dotenv import load_dotenv
-    import os
-
-    load_dotenv()
-
-    uri = os.getenv("UPLAN_URI_MONGO")
-    db_raw = mongo_connection.connect_to_mongodb(uri, "IncomingRawData")
-    db_incoming = mongo_connection.connect_to_mongodb(uri, "Incoming")
-
-    # Collections to search
-    collection_incoming_raw_items = db_raw["IncomingRawOrders"]
-    collection_incoming_items = db_incoming["Orders"]
-
-    # Query to filter items
-    integration_id = "666788e0eb8f5b0ac6f826cc"
-
-    parserColmeia = FormatOrdersColmeia()
-    refresh_incoming_orders(query, parserColmeia.run)
+        print(f"Processed {len(list_orders_id)} documents.")

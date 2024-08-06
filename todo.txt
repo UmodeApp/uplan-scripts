@@ -1,0 +1,10 @@
+703876 orders diferentes
+234625 - segundos
+65 horas
+
+atual --- 
+400 itens por minutos
+
+
+- fazer a contagem de orders por um filtro
+- Fazer a estimativa do tempo do passo 2
