@@ -2,6 +2,7 @@ import math
 from datetime import datetime
 from pymongo import InsertOne, UpdateOne
 from src.mongo_integration.mongo_connection import remove_none_keys
+from src.log_manager import LogManager
 
 
 class FormatOrdersColmeia:
@@ -107,12 +108,34 @@ class CreateIncomingOrders:
         "colmeia": FormatOrdersColmeia
     }
 
-    def __init__(self, integration_id, process_id, collection_incoming_raw_items, collection_incoming_orders):
+    def __init__(self, integration_id, process_id, collection_incoming_raw_items, collection_incoming_orders, **kwargs):
         self.integration_id = integration_id
         self.process_id = process_id
         self.collection_incoming_raw_items = collection_incoming_raw_items
         self.collection_incoming_orders = collection_incoming_orders
         self.handler_process_brand = self.get_process_brand()
+
+        # Parâmetros com valores padrão
+        self.batch_size = kwargs.get('batch_size', 1000)
+        self.set_logs_default()
+
+    def set_logs_default(self):
+        default_log = {
+            "integration_id": self.integration_id,
+            "configuration": {
+                "batch_size": self.batch_size,
+            }
+        }
+        self.logs = LogManager("create_incoming_orders",
+                               self.process_id, default_log)
+        self.logs.context = {
+            "tracer": [],
+            "error": []
+        }
+
+    def add_logs(self, key, value):
+        " Add this function on Log class with automatic dict creation keys "
+        self.logs.context[key].append(value)
 
     def get_process_brand(self):
         """ 
@@ -157,54 +180,78 @@ class CreateIncomingOrders:
                 {"orderId": order_group["orderId"]})
 
             if existing_document:
-                bulk_operations.append(
-                    UpdateOne(
-                        {"_id": existing_document["_id"]},
-                        {"$set": new_format},
-                        upsert=True
-                    )
-                )
+                pass
+                # bulk_operations.append(
+                #     UpdateOne(
+                #         {"_id": existing_document["_id"]},
+                #         {"$set": new_format},
+                #         upsert=True
+                #     )
+                # )
             else:
                 bulk_operations.append(InsertOne(new_format))
 
         return bulk_operations
 
     def bulk_write_operations(self, bulk_operations):
+        current_time = datetime.now().strftime("%H:%M:%S")
         if bulk_operations:
-            self.collection_incoming_orders.bulk_write(bulk_operations)
-            current_time = datetime.now().strftime("%H:%M:%S")
-            print(
-                f"{current_time} - Executed bulk write for {len(bulk_operations)} operations")
+            try:
+                self.collection_incoming_orders.bulk_write(bulk_operations)
+                msg = f"Iteration {self.iteration} - Saved {len(bulk_operations)} Orders"
+                print(msg)
+                self.add_logs("tracer", msg)
+                self.logs.update_main_log()
+                return
+            except Exception as e:
+                self.log_erro_save(e)
+                return
 
-    def run(self, batch_size=1000, limit=1000):
+        msg = f"{current_time} - Skip Iteration {self.iteration} - Saved {len(bulk_operations)} Orders"
+        print(msg)
+        self.add_logs("tracer", msg)
+        self.logs.update_main_log()
+
+    def run(self, skip=0, iterations_run=[]):
+        self.add_logs("tracer", "Start Process!")
+
+        skip = skip * self.batch_size
+        self.iteration = 0
         list_orders_id = []
-        skip = 0
         while True:
-            order_ids = self.get_order_ids(skip=skip, limit=limit)
-            if not order_ids:
-                break
+            self.iteration += 1
+            if iterations_run and self.iteration not in iterations_run:
+                continue
+            try:
+                order_ids = self.get_order_ids(
+                    skip=skip, limit=self.batch_size)
 
-            current_order_ids = []
-            bulk_operations = []
+                if not order_ids:
+                    break
 
-            for order_id in order_ids:
-                if order_id not in list_orders_id:
-                    current_order_ids.append(order_id)
+                current_order_ids = []
 
-            list_orders_id += current_order_ids
-            bulk_operation = self.process_order_ids(current_order_ids)
-            bulk_operations += bulk_operation
+                for order_id in order_ids:
+                    if order_id not in list_orders_id:
+                        current_order_ids.append(order_id)
 
-            current_time = datetime.now().strftime("%H:%M:%S")
-            print(
-                f"{current_time} - Executed item {len(list_orders_id)} operations")
+                list_orders_id += current_order_ids
+                bulk_operations = self.process_order_ids(current_order_ids)
 
-            if len(bulk_operations) >= batch_size:
                 self.bulk_write_operations(bulk_operations)
-                bulk_operations = []
 
-            self.bulk_write_operations(bulk_operations)
-            skip += limit
+            except Exception as e:
+                self.log_erro_save(e)
+
+            skip += self.batch_size
 
         print("Transformation completed successfully.")
         print(f"Processed {len(list_orders_id)} documents.")
+
+    def log_erro_save(self, e):
+        current_time = datetime.now().strftime("%H:%M:%S")
+        msg = f"{current_time} - Iteration {self.iteration} - Erro: {e}"
+        print(msg)
+        self.add_logs("tracer", msg)
+        self.add_logs("error", self.iteration)
+        self.logs.update_main_log()

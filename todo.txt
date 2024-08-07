@@ -8,3 +8,8 @@ atual ---
 
 - fazer a contagem de orders por um filtro
 - Fazer a estimativa do tempo do passo 2
+- Criar fluxo de stock
+
+
+ESTUDAR SOBRE MONGO QUERYS
+- https://www.mongodb.com/pt-br/docs/manual/aggregation/

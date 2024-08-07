@@ -33,11 +33,15 @@ class PipelineDadaOrders:
         self.set_logs_default()
 
     def set_logs_default(self):
-        self.logs = LogManager("PipelineOrders", self.process_id)
-        self.logs_data = {
+        default_log = {
             "integration_id": self.integration_id,
-            "tracer": {}
+            "configuration": {
+                "start_chunk": self.start_chunk,
+                "chunk_size": self.chunk_size,
+                "path_orders_to_item_slim": self.path_orders_to_item_slim,
+            }
         }
+        self.logs = LogManager("transpose_incoming_order", self.process_id, default_log)
 
     def step1(self):
         load = LoadCSVtoRawOrders(
@@ -54,7 +58,7 @@ class PipelineDadaOrders:
                                              self.process_id,
                                              self.db_athemis["IncomingRawData"]["IncomingRawOrders"],
                                              self.db_athemis["Incoming"]["Orders"])
-        orderIncoming.run()
+        orderIncoming.run(skip=100)
 
     def step3(self):
         collection_incoming_orders = self.db_athemis["Incoming"]["Orders"]
@@ -69,7 +73,7 @@ class PipelineDadaOrders:
     def run(self):
         # try:
         print("================= step1 ======================")
-        #self.step1()
+        # self.step1()
         print("================= step2 ======================")
         self.step2()
         print("================= step3 ======================")
@@ -82,11 +86,17 @@ class PipelineDadaOrders:
         #     self.logs.save_log(self.logs_data)
 
 
+# GERAL
 integration_id = "666788e0eb8f5b0ac6f826cc"
+process_id = "17229622640886564"
+
+# STEP 1
 path_orders_to_item_slim = 'files/vendas_240710.csv'
 chunk_size = 5000
-process_id = "17229622640886564"
 start_chunk = 0
+
+# STEP 2
+
 pipe = PipelineDadaOrders(
     integration_id, path_orders_to_item_slim, chunk_size, start_chunk, process_id)
 pipe.run()
