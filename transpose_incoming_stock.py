@@ -10,18 +10,14 @@ from src.log_manager import LogManager
 load_dotenv()
 
 
-class PipelineDadaOrders:
+class PipelineDataStock:
     def __init__(self, integration_id,
-                 path_orders_to_item_slim=None,
-                 chunk_size=10000,
-                 start_chunk=0,
+                 path_stock_file=None,
                  process_id=str(time.time()).replace(".", "")
                  ) -> None:
 
         self.integration_id = integration_id
-        self.path_orders_to_item_slim = path_orders_to_item_slim
-        self.chunk_size = chunk_size
-        self.start_chunk = start_chunk
+        self.path_stock_file = path_stock_file
         self.process_id = process_id
         self.setup()
 
@@ -36,12 +32,10 @@ class PipelineDadaOrders:
         default_log = {
             "integration_id": self.integration_id,
             "configuration": {
-                "start_chunk": self.start_chunk,
-                "chunk_size": self.chunk_size,
-                "path_orders_to_item_slim": self.path_orders_to_item_slim,
+                "path_stock_file": self.path_stock_file,
             }
         }
-        self.logs = LogManager("transpose_incoming_order",
+        self.logs = LogManager("transpose_incoming_stock",
                                self.process_id, default_log)
 
     def step1(self):
@@ -62,13 +56,13 @@ class PipelineDadaOrders:
         orderIncoming.run()
 
     def step3(self):
-        collection_incoming_orders = self.db_athemis["Incoming"]["Orders"]
-        collection_live_orders = self.db_anubis["Items"]["Orders"]
+        collection_incoming_stock = self.db_athemis["Incoming"]["Stock"]
+        collection_live_stock = self.db_anubis["Items"]["Stock"]
 
         copyDocumentsToNewCollection(integration_id,
                                      self.process_id,
-                                     collection_incoming_orders,
-                                     collection_live_orders
+                                     collection_incoming_stock,
+                                     collection_live_stock
                                      )
 
     def run(self):
@@ -101,6 +95,6 @@ start_chunk = 0
 
 # STEP 2
 
-pipe = PipelineDadaOrders(
+pipe = PipelineDataStock(
     integration_id, path_orders_to_item_slim, chunk_size, start_chunk)
 pipe.run_to_fix(process_id)

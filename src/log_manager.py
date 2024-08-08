@@ -34,7 +34,8 @@ class LogManager:
     def set_main_log(self):
         data = self._format_log_entry(self.default_log)
         self.context = data["context"]
-        self.collection.insert_one(data)
+        log_obj = self.collection.insert_one(data)
+        self.log_id = log_obj.inserted_id
 
     def _format_log_entry(self, log_data: Dict[str, Any]) -> Dict[str, Any]:
         """Format the log entry to match the desired schema."""
@@ -56,7 +57,7 @@ class LogManager:
             "updatedAt": formatted_date
         }
         self.collection.update_one(
-            {"processId": self.process_id},
+            {"_id": self.log_id},
             {"$set": updated_log_entry}
         )
 

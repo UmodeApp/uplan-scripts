@@ -1,8 +1,9 @@
 import math
 from datetime import datetime
-from pymongo import InsertOne, UpdateOne
+from pymongo import InsertOne
 from src.mongo_integration.mongo_connection import remove_none_keys
 from src.log_manager import LogManager
+import traceback
 
 
 class FormatOrdersColmeia:
@@ -33,7 +34,7 @@ class FormatOrdersColmeia:
             return None
         try:
             return datetime.strptime(date_str, "%Y-%m-%d %H:%M:%S,%f")
-        except ValueError:
+        except:
             return None
 
     def format_money(self, value) -> int:
@@ -117,6 +118,7 @@ class CreateIncomingOrders:
 
         # Parâmetros com valores padrão
         self.batch_size = kwargs.get('batch_size', 1000)
+        self.type_run = kwargs.get('type_run', "Default")
         self.set_logs_default()
 
     def set_logs_default(self):
@@ -124,6 +126,7 @@ class CreateIncomingOrders:
             "integration_id": self.integration_id,
             "configuration": {
                 "batch_size": self.batch_size,
+                "type_run": self.type_run
             }
         }
         self.logs = LogManager("create_incoming_orders",
@@ -212,11 +215,11 @@ class CreateIncomingOrders:
         self.add_logs("tracer", msg)
         self.logs.update_main_log()
 
-    def run(self, skip=0, iterations_run=[]):
+    def run(self, skip_iterations=0, iterations_run=[]):
         self.add_logs("tracer", "Start Process!")
 
-        skip = skip * self.batch_size
-        self.iteration = 0
+        skip = skip_iterations * self.batch_size
+        self.iteration = skip_iterations
         list_orders_id = []
         while True:
             self.iteration += 1
@@ -241,7 +244,8 @@ class CreateIncomingOrders:
                 self.bulk_write_operations(bulk_operations)
 
             except Exception as e:
-                self.log_erro_save(e)
+                error_traceback = traceback.format_exc(e)
+                self.log_erro_save(error_traceback)
 
             skip += self.batch_size
 
@@ -255,3 +259,26 @@ class CreateIncomingOrders:
         self.add_logs("tracer", msg)
         self.add_logs("error", self.iteration)
         self.logs.update_main_log()
+
+    def re_run_fails_chunck(process_id, process_id_re, db_athemis):
+        logs_incoming_orders = db_athemis["Logs"]["create_incoming_orders"]
+        query = {"processId": process_id_re}
+        log_execution = logs_incoming_orders.find_one(query)
+
+        # set configuration
+        batch_size = log_execution["configuration"].get('batch_size', 1000)
+        integration_id = log_execution['integration_id']
+
+        orderIncoming = CreateIncomingOrders(integration_id,
+                                             process_id_re,
+                                             db_athemis["IncomingRawData"]["IncomingRawOrders"],
+                                             db_athemis["Incoming"]["Orders"],
+                                             batch_size=batch_size,
+                                             type_run="Correction"
+                                             )
+        chunck_erros = log_execution["context"]["error"]
+        if len(chunck_erros) == 0:
+            return
+        skip = (chunck_erros[0] - 1)
+        orderIncoming.run(
+            skip_iterations=skip, iterations_run=chunck_erros)
